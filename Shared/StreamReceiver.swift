@@ -138,6 +138,7 @@ final class StreamReceiver: ObservableObject {
     private var cursorLostThisWindow = 0
     private var cursorPort: UInt16 { port &+ 1 }
     private let queue = DispatchQueue(label: "receiver.video")
+    private let diagnostics = StageDiagnostics()
     private var buffer = Data()
     private var formatDesc: CMVideoFormatDescription?
     #if DEBUG
@@ -395,6 +396,10 @@ final class StreamReceiver: ObservableObject {
 
     func start(port: UInt16 = 9000) {
         self.port = port
+        diagnostics.start(role: "receiver", queue: queue) { [weak self] report in
+            StageDiagnostics.log(report)
+            self?.queue.async { self?.sendControl(report) }
+        }
         queue.async {
             self.startListener()
             self.armLivenessTimers()
@@ -407,6 +412,7 @@ final class StreamReceiver: ObservableObject {
     /// app calls this when the user leaves receiver mode or quits; the
     /// instance is discarded afterwards (start() re-arms if it isn't).
     func stop(completion: (() -> Void)? = nil) {
+        diagnostics.stop()
         queue.async {
             self.pingTimer?.cancel(); self.pingTimer = nil
             self.watchdogTimer?.cancel(); self.watchdogTimer = nil
@@ -644,6 +650,7 @@ final class StreamReceiver: ObservableObject {
         // Loss accounting only; the floor itself is enforced in applyCursor,
         // shared with TCP. Counts run slightly hot during the brief window
         // where the sender still mirrors to TCP (duplicates read as drops).
+        diagnostics.tick("cursorUDPReceiveGapMs")
         guard seq > lastCursorSeq else { cursorLostThisWindow += 1; return }
         if lastCursorSeq == 0 {
             // First datagram of this flow: tell the sender the channel truly
@@ -1008,8 +1015,11 @@ final class StreamReceiver: ObservableObject {
         let visible = (obj["v"] as? Int ?? 0) == 1
         let x = obj["x"] as? Double ?? 0
         let y = obj["y"] as? Double ?? 0
+        diagnostics.tick("cursorReceiveGapMs")
+        let diagnosticCursorStart = StageDiagnostics.now
         cursorUpdatesThisWindow += 1
         DispatchQueue.main.async {
+            self.diagnostics.record("cursorMainDispatchMs", StageDiagnostics.now - diagnosticCursorStart)
             self.cursorState = (x, y, visible)
             self.onCursor?(x, y, visible)
         }
@@ -1451,6 +1461,7 @@ final class StreamReceiver: ObservableObject {
     }
 
     private func enqueueFrame(_ nalus: [Data], captureMs: Double? = nil, sendMs: Double? = nil) {
+        diagnostics.tick("videoReceiveGapMs")
         guard let formatDesc else { return }
         // Backgrounded linger: hardware decode is off-limits there, so drop
         // frames at the door instead of feeding a failing display layer at
@@ -1521,7 +1532,9 @@ final class StreamReceiver: ObservableObject {
                 decodeFlushes += 1
                 displayLayer.flush()
             }
+            let diagnosticEnqueueStart = StageDiagnostics.now
             displayLayer.enqueue(sample)
+            diagnostics.record("displayEnqueueCallMs", StageDiagnostics.now - diagnosticEnqueueStart)
         }
 
         // Per-frame timing for the performance overlay.

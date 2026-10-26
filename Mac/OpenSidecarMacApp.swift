@@ -324,6 +324,10 @@ final class SenderController: ObservableObject {
     private var everOnCable: Set<String> = []
 
     init() {
+        if let host = UserDefaults.standard.string(forKey: "diagnosticHost") {
+            directHost = host
+            Task { @MainActor in self.connectDirect() }
+        }
         startBrowsing()
         usbWatcher = UsbmuxDeviceWatcher { [weak self] devices in
             guard let self else { return }

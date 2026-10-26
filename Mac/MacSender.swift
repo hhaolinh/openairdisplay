@@ -352,6 +352,7 @@ final class MacSender: NSObject, SCStreamOutput, SCStreamDelegate {
     /// Bitrate the encoder was configured with; refinement restores it.
     private var baseBitrate = 0
 
+    private let diagnostics = StageDiagnostics()
     private let allowsPeerToPeer: Bool
 
     init(transport: SenderTransport, name: String, mode: CaptureMode,
@@ -373,6 +374,19 @@ final class MacSender: NSObject, SCStreamOutput, SCStreamDelegate {
 
     func start() async throws {
         stopped = false
+        diagnostics.start(role: "sender", queue: queue) { [weak self] report in
+            self?.queue.async { [weak self] in
+                guard let self else { return }
+                var report = report
+                self.cursorNetworkLock.lock()
+                report["udpConfirmed"] = self.cursorChannelConfirmed
+                self.cursorNetworkLock.unlock()
+                if let connection = self.connection {
+                    report["transport"] = connection.peerToPeerWiFiInterfaceName != nil ? "AWDL" : "LAN/USB"
+                }
+                StageDiagnostics.log(report)
+            }
+        }
         queue.async { self.connect() }   // dial state lives on `queue`
         if !monitorsStarted {
             monitorsStarted = true
@@ -1239,6 +1253,7 @@ final class MacSender: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     func stop() {
+        diagnostics.stop()
         stopped = true
         invalidateCapturePipeline(discardingLastFrame: true)
         stopCursorPositionEcho()
@@ -2096,6 +2111,7 @@ final class MacSender: NSObject, SCStreamOutput, SCStreamDelegate {
     /// the TCP frame is byte-identical to the pre-side-channel wire. Never
     /// blocks: a send on a dead UDP socket just fails in its completion.
     private func sendCursor(_ fields: String) {
+        diagnostics.tick("cursorSendGapMs")
         cursorSeq &+= 1
         let sessionGeneration = cursorSessionGeneration
         let message = "{\"type\":\"cursor\",\(fields),\"s\":\(cursorSeq)}"
@@ -2297,6 +2313,8 @@ final class MacSender: NSObject, SCStreamOutput, SCStreamDelegate {
             return
         }
         switch type {
+        case "diagnostics":
+            StageDiagnostics.log(obj)
         case "ping":
             // Echo with our clock so the phone can estimate the offset
             // (NTP-style) and compute true end-to-end frame latency.
@@ -2615,6 +2633,7 @@ final class MacSender: NSObject, SCStreamOutput, SCStreamDelegate {
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
         else { return }
 
+        diagnostics.tick("captureGapMs")
         let generation = captureGenerationNow
 
         lastPixelBuffer = pixelBuffer
@@ -2775,6 +2794,7 @@ final class MacSender: NSObject, SCStreamOutput, SCStreamDelegate {
             frameProperties = [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue!] as CFDictionary
             needsKeyframe = false
         }
+        let diagnosticEncodeStart = StageDiagnostics.now
         let submitStatus = VTCompressionSessionEncodeFrame(
             encoder,
             imageBuffer: pixelBuffer,
@@ -2784,6 +2804,7 @@ final class MacSender: NSObject, SCStreamOutput, SCStreamDelegate {
             infoFlagsOut: nil
         ) { [weak self] status, _, buffer in
             guard let self else { return }
+            self.diagnostics.record("encodeMs", StageDiagnostics.now - diagnosticEncodeStart)
             var deliveryEnqueued = false
             defer {
                 if !deliveryEnqueued { self.finishPendingEncode() }
@@ -3059,8 +3080,10 @@ final class MacSender: NSObject, SCStreamOutput, SCStreamDelegate {
     /// `becomeReady` forces the next admitted frame to be an IDR.
     private func enqueueFramed(_ payload: Data, captureGeneration: UInt64,
                                connectionGeneration: UInt64) {
+        let diagnosticQueuedAt = StageDiagnostics.now
         queue.async { [weak self] in
             guard let self else { return }
+            self.diagnostics.record("encodeDeliveryQueueMs", StageDiagnostics.now - diagnosticQueuedAt)
             self.finishPendingEncode()
             guard self.captureGenerationNow == captureGeneration,
                   self.connectionGeneration == connectionGeneration else { return }
@@ -3078,8 +3101,10 @@ final class MacSender: NSObject, SCStreamOutput, SCStreamDelegate {
         var frame = Data(bytes: &header, count: 4)
         frame.append(payload)
         pendingSends += 1
+        let diagnosticSendStart = StageDiagnostics.now
         connection.send(content: frame, completion: .contentProcessed { [weak self] error in
             guard let self else { return }
+            self.diagnostics.record("sendCompletionMs", StageDiagnostics.now - diagnosticSendStart)
             self.pendingSends -= 1
             if let error {
                 Log.info("send error: \(error)")

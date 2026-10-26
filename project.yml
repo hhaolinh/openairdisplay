@@ -167,6 +167,7 @@ targets:
       - Shared/AppVersion.swift
       - Shared/TwoFingerGestureState.swift
       - Shared/DirectCable.swift
+      - Shared/StageDiagnostics.swift
       - Shared/DirectAddress.swift
       - Shared/PeerToPeerWiFi.swift
       - Shared/LogSnapshot.swift

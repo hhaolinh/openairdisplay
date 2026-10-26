@@ -38,3 +38,6 @@ fastlane/test_output/
 node_modules/
 dist-ssr/
 docs/
+
+# Local diagnostic app packages
+diagnostics-output/
