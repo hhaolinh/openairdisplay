@@ -15,6 +15,25 @@ struct ReceiverSections: View {
             ReceiverStatusSection(receiver: receiver, controller: controller)
         }
 
+        Section("Direct connection") {
+            TimelineView(.periodic(from: .now, by: 5)) { _ in
+                let addresses = StreamReceiver.reachableAddresses().filter {
+                    !$0.lowercased().hasPrefix("fe80:")
+                }
+                if addresses.isEmpty {
+                    Text("No LAN address — connect this Mac to Wi-Fi or Ethernet.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(addresses, id: \.self) { address in
+                    Text(address).font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+            }
+            Text("On the sending Mac, enter this Mac’s Wi-Fi IP and port 9000 in Connect over LAN. This bypasses Bonjour discovery; the network must allow connections between the two Macs.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+
         Section {
             ReceiverNameField { controller.setAdvertisedName($0) }
         } header: {

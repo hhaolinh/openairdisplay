@@ -95,11 +95,13 @@ enum MainWindow {
 enum ConnectionTarget: Hashable {
     case usb(udid: String?)           // wired via built-in usbmuxd; nil = first device
     case wifi(NWBrowser.Result)       // discovered via Bonjour
+    case direct(host: String, port: UInt16) // explicit LAN address; no AWDL
 
     /// Stable identity for sessions and persistence — survives Bonjour
     /// re-discovery (fresh NWBrowser.Result) and USB replugs (new DeviceID).
     var sessionID: String {
         switch self {
+        case .direct(let host, let port): return "direct:\(host):\(port)"
         case .usb(let udid): return "usb:\(udid ?? "first")"
         case .wifi(let result):
             if case .service(let name, _, _, _) = result.endpoint { return "wifi:\(name)" }
@@ -239,6 +241,19 @@ final class SenderController: ObservableObject {
     @Published var usbDevices: [UsbmuxDevice] = []
     // `-host x.x.x.x` / `-port n` bypass usbmuxd with a manual TCP endpoint
     // (debugging escape hatch, e.g. an iproxy or SSH tunnel).
+    @Published var directHost = ""
+    @Published var directPort = "9000"
+    @Published var directError: String?
+
+    func connectDirect() {
+        guard let address = DirectAddress(host: directHost, port: directPort) else {
+            directError = "Enter a numeric IP address and a port from 1 to 65535."
+            return
+        }
+        directError = nil
+        connect(to: .direct(host: address.host, port: address.port), userInitiated: true)
+    }
+
     @Published var host = UserDefaults.standard.string(forKey: "host") ?? "127.0.0.1"
     @Published var port = UserDefaults.standard.string(forKey: "port") ?? "9000"
     // `-mode mirror` / `-mode extend` launch argument also works.
@@ -567,6 +582,7 @@ final class SenderController: ObservableObject {
     /// UI shows transports separately).
     func label(for target: ConnectionTarget) -> String {
         switch target {
+        case .direct(let host, let port): return "Direct (\(host):\(port))"
         case .usb(let udid):
             if let device = usbDevices.first(where: { $0.udid == udid }), let name = device.name {
                 return name
@@ -632,6 +648,7 @@ final class SenderController: ObservableObject {
 
         // Connecting a device clears its "don't auto-connect" state.
         switch target {
+        case .direct: break
         case .usb: usbDisabled.remove(id)
         case .wifi(let result):
             wifiRemembered.insert(id)
@@ -640,6 +657,9 @@ final class SenderController: ObservableObject {
 
         let transport: SenderTransport
         switch target {
+        case .direct(let host, let port):
+            transport = .tcp(.hostPort(host: NWEndpoint.Host(host),
+                                       port: NWEndpoint.Port(rawValue: port)!))
         case .usb(let udid):
             guard let portNum = UInt16(port) else { return }
             if UserDefaults.standard.object(forKey: "host") != nil, udid == nil {
@@ -657,7 +677,8 @@ final class SenderController: ObservableObject {
         let sender = MacSender(transport: transport, name: name, mode: mode,
                                quality: quality, displaySerial: Self.displaySerial(for: id),
                                identityOffset: identityOffset(for: id),
-                               awaitingWake: awaitingWake)
+                               awaitingWake: awaitingWake,
+                               allowsPeerToPeer: { if case .direct = target { return false }; return true }())
         let session = DeviceSession(id: id, target: target, name: name, sender: sender)
         if case .wifi(let result) = target {
             session.wifiServiceName = serviceName(of: result)
@@ -765,6 +786,7 @@ final class SenderController: ObservableObject {
     /// User-initiated disconnect: also opt the device out of auto-connect.
     func disconnect(_ session: DeviceSession) {
         switch session.target {
+        case .direct: break
         case .usb: usbDisabled.insert(session.id)
         case .wifi:
             wifiRemembered.remove(session.id)
@@ -1013,6 +1035,18 @@ struct ContentView: View {
                                 }
                             }
                         }
+                    }
+                }
+
+                Section("Direct connection") {
+                    TextField("Receiver IP address", text: $controller.directHost)
+                    TextField("Port", text: $controller.directPort)
+                    Button("Connect over LAN") { controller.connectDirect() }
+                    Text("Use the receiver’s Wi-Fi IP when Bonjour is blocked. This connection disables AWDL. Both devices must be able to reach each other on the network.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let error = controller.directError {
+                        Text(error).font(.caption).foregroundStyle(.red)
                     }
                 }
 

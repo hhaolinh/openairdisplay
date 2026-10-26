@@ -1119,7 +1119,7 @@ final class StreamReceiver: ObservableObject {
     /// it to each of its own candidate interfaces when probing. Virtual and
     /// peer-to-peer interfaces (awdl/llw/utun) never carry this traffic and
     /// are skipped.
-    private static func reachableAddresses() -> [String] {
+    static func reachableAddresses() -> [String] {
         var result: [String] = []
         var list: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&list) == 0, let first = list else { return result }

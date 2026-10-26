@@ -352,9 +352,13 @@ final class MacSender: NSObject, SCStreamOutput, SCStreamDelegate {
     /// Bitrate the encoder was configured with; refinement restores it.
     private var baseBitrate = 0
 
+    private let allowsPeerToPeer: Bool
+
     init(transport: SenderTransport, name: String, mode: CaptureMode,
          quality: StreamQuality = .best, displaySerial: UInt32 = 0x0001,
-         identityOffset: UInt32 = 0, awaitingWake: Bool = false) {
+         identityOffset: UInt32 = 0, awaitingWake: Bool = false,
+         allowsPeerToPeer: Bool = true) {
+        self.allowsPeerToPeer = allowsPeerToPeer
         self.transport = transport
         self.endpointName = name
         self.mode = mode
@@ -1809,7 +1813,8 @@ final class MacSender: NSObject, SCStreamOutput, SCStreamDelegate {
         // The Bonjour endpoint may live on Apple's peer-to-peer WiFi path when
         // there is no infrastructure network. Dialing the service endpoint (not
         // a resolved IP) is what lets Network.framework pick AWDL.
-        params.includePeerToPeer = true
+        params.includePeerToPeer = allowsPeerToPeer
+        params.prohibitedInterfaceTypes = [.cellular]
         let conn = NWConnection(to: endpoint, using: params)
         connection = conn
         // A dial to a withdrawn Bonjour service (receiver asleep or app
