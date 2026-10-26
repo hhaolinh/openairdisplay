@@ -88,6 +88,9 @@ private struct ReceiverStatusSection: View {
                         .help("Bring the video window back if you closed it — the stream keeps running either way.")
                 }
             }
+            Text("Timing diagnostics: \(receiver.timingDiagnosticsEnabled ? "On" : "Off")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             if receiver.videoSize != .zero {
                 // Not LabeledContent: that is macOS 13, the app runs on 12.
                 HStack {

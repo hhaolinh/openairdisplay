@@ -2373,6 +2373,7 @@ final class MacSender: NSObject, SCStreamOutput, SCStreamDelegate {
                 // message types. Sending on every hello is idempotent — the
                 // phone dedupes by content.
                 sendWelcome()
+                if diagnostics.enabled { sendJSONFrame("{\"type\":\"diagnosticsStart\"}") }
                 if let selected = activeStreamConfigurationSnapshot, peerAcceptsActiveCodec {
                     sendStreamConfiguration(selected)
                 }

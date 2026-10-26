@@ -22,6 +22,14 @@ final class StageDiagnosticsTests: XCTestCase {
         XCTAssertTrue(JSONSerialization.isValidJSONObject(report))
     }
 
+    func testConnectedSenderCanEnableInitiallyDisabledCollector() {
+        let collector = StageDiagnostics(enabled: false)
+        collector.enable()
+        collector.record("mainQueueMs", 3)
+        let stages = collector.snapshot(role: "receiver")["stages"] as! [String: Any]
+        XCTAssertEqual((stages["mainQueueMs"] as! [String: Any])["n"] as? Int, 1)
+    }
+
     func testWindowMemoryIsBounded() {
         let collector = StageDiagnostics(enabled: true)
         for _ in 0..<5000 { collector.record("cursorReceiveGapMs", 8) }

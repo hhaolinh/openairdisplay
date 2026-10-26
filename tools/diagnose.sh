@@ -32,6 +32,27 @@ fi
 open "$APP" --args -SUEnableAutomaticChecks NO -diagnostics YES -diagnosticHost "$HOST" -autostart NO
 print 'Confirm Screen Recording permission and wait until the receiver shows the desktop.'
 read 'REPLY?Press Enter when video is visible: '
+print 'Checking receiver telemetry (up to 8 seconds)…'
+sleep 8
+LOG="$HOME/Library/Logs/OpenAirDisplay Dev/opendisplay.log"
+if ! python3 - "$LOG" "$START" <<'PYCODE'
+import json, sys
+from pathlib import Path
+for line in Path(sys.argv[1]).read_text(errors='replace').splitlines():
+    if 'DIAG {' not in line: continue
+    try:
+        row = json.loads(line.split('DIAG ', 1)[1])
+        if row.get('role') == 'receiver' and row.get('time', 0) >= float(sys.argv[2]):
+            sys.exit(0)
+    except (ValueError, TypeError): pass
+sys.exit(1)
+PYCODE
+then
+  print 'Receiver telemetry is missing. Capture stopped before the test phases.'
+  print 'Check the receiver panel: Timing diagnostics must show On.'
+  print 'Receiver log: ~/Library/Logs/OpenAirDisplay Receiver Dev/opendisplay.log'
+  exit 1
+fi
 START="$(date +%s)"
 for PHASE in 'Idle: do not move the mouse' 'Cursor: move the mouse continuously over the receiving display, without dragging' 'Drag: drag a window continuously around the receiving display'; do
   print "\n$PHASE — $SECONDS_PER_PHASE seconds"

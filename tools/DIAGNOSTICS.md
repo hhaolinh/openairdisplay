@@ -8,6 +8,11 @@ cursor coordinates. Normal launches leave diagnostics disabled.
    double-click **Start Receiver.command**. Keep the receiver open.
 2. On the sending Mac, double-click **Start Sender.command** in the Sender
    folder. Its default target is `10.254.217.10`; edit the command if the IP changes.
+The receiver panel now shows **Timing diagnostics: On/Off**. A diagnostic
+sender also requests activation after connecting. Before collecting phases, the
+script verifies that receiver timing windows actually arrive; it aborts early
+if they do not.
+
 3. Grant Screen Recording to OpenAirDisplay Dev if requested. Once video is
    visible, press Enter in Terminal.
 4. Follow the spoken/printed phases: 20 seconds idle, 20 seconds moving the

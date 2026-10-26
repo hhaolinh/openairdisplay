@@ -3,10 +3,21 @@ import Foundation
 /// Opt-in timing only: no pixels, cursor coordinates, or window titles.
 /// Samples use the local monotonic clock; cross-device clocks are not mixed.
 final class StageDiagnostics {
-    let enabled: Bool
+    private var active: Bool
+    var enabled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return active
+    }
+
+    func enable() {
+        lock.lock()
+        active = true
+        lock.unlock()
+    }
 
     init(enabled: Bool = UserDefaults.standard.bool(forKey: "diagnostics")) {
-        self.enabled = enabled
+        self.active = enabled
     }
     private let lock = NSLock()
     private var samples: [String: [Double]] = [:]

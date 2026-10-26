@@ -139,6 +139,7 @@ final class StreamReceiver: ObservableObject {
     private var cursorPort: UInt16 { port &+ 1 }
     private let queue = DispatchQueue(label: "receiver.video")
     private let diagnostics = StageDiagnostics()
+    @Published private(set) var timingDiagnosticsEnabled = false
     private var buffer = Data()
     private var formatDesc: CMVideoFormatDescription?
     #if DEBUG
@@ -396,13 +397,19 @@ final class StreamReceiver: ObservableObject {
 
     func start(port: UInt16 = 9000) {
         self.port = port
-        diagnostics.start(role: "receiver", queue: queue) { [weak self] report in
-            StageDiagnostics.log(report)
-            self?.queue.async { self?.sendControl(report) }
-        }
+        startTimingDiagnostics()
+        Log.info("timing diagnostics at receiver startup: \(diagnostics.enabled ? "enabled" : "disabled")")
         queue.async {
             self.startListener()
             self.armLivenessTimers()
+        }
+    }
+
+    private func startTimingDiagnostics() {
+        DispatchQueue.main.async { self.timingDiagnosticsEnabled = self.diagnostics.enabled }
+        diagnostics.start(role: "receiver", queue: queue) { [weak self] report in
+            StageDiagnostics.log(report)
+            self?.queue.async { self?.sendControl(report) }
         }
     }
 
@@ -905,6 +912,11 @@ final class StreamReceiver: ObservableObject {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = obj["type"] as? String else { return }
         switch type {
+        case "diagnosticsStart":
+            diagnostics.enable()
+            startTimingDiagnostics()
+            Log.info("timing diagnostics enabled by connected sender")
+
         case "pong":
             guard let t1 = obj["t"] as? Double, let mt = obj["mt"] as? Double else { return }
             let t2 = nowMs
